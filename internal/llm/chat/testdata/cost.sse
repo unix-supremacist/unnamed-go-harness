@@ -1,0 +1,8 @@
+data: {"id":"x","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"finish_reason":null,"delta":{"role":"assistant","content":"pong"}}]}
+
+data: {"id":"x","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"finish_reason":"stop","delta":{}}]}
+
+data: {"id":"x","object":"chat.completion.chunk","model":"m","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"cost":0.00123}}
+
+data: [DONE]
+
