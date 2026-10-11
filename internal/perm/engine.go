@@ -109,16 +109,18 @@ func (e *Engine) Check(ctx context.Context, c Call) Outcome {
 		}
 	}
 	e.noteTier(c)
-	// Model classifiers: only the panel for this tier.
+	e.markUntrusted(&c)
+	// Model classifiers: only the panel for this tier. Only a flag (static
+	// or model) prompts; an untrusted output just makes the panel judge.
 	vs = append(vs, e.runPanel(ctx, c)...)
 	d := Decide(e.Policy, vs)
-	action, reason, untrusted := e.applyUntrusted(c, d.Action, d.Reason)
+	action, reason := d.Action, d.Reason
 	switch action {
 	case Stop:
 		return e.finish(c, Stop, vs, "", reason)
 	case Prompt:
 		if e.Prompter == nil {
-			return e.finish(c, Deny, vs, "", e.denyReasonFor(untrusted))
+			return e.finish(c, Deny, vs, "", e.denyReason())
 		}
 		switch e.Prompter.Ask(c, vs) {
 		case AnsAllowOnce:
@@ -128,7 +130,7 @@ func (e *Engine) Check(ctx context.Context, c Call) Outcome {
 		case AnsStop:
 			return e.finish(c, Stop, vs, "s", reason)
 		default:
-			return e.finish(c, Deny, vs, "n", e.denyReasonFor(untrusted))
+			return e.finish(c, Deny, vs, "n", e.denyReason())
 		}
 	default:
 		return e.finish(c, Allow, vs, "", reason)
@@ -153,36 +155,24 @@ func (e *Engine) background(ctx context.Context, c Call, static []Verdict, reaso
 		}
 		// The same model calls classify would make for this tier, logged
 		// and never applied.
+		e.markUntrusted(&c)
 		vs = append(vs, e.runPanel(bg, c)...)
 		e.Log.Add(e.entry(c, vs, Allow, "", reason))
 		e.notify(c, vs)
 	}()
 }
 
-// applyUntrusted raises an agent's call to at least prompt once its previous
-// tool output flagged the untrusted-output check (§4.3). The third result is
-// that raising reason, or "" when nothing was raised.
-func (e *Engine) applyUntrusted(c Call, action, reason string) (string, string, string) {
+// markUntrusted notes on c that an earlier output of its agent flagged the
+// untrusted-output check (§4.3), and raises a trivial call to low so the
+// model panel judges it with that context. It never prompts by itself.
+func (e *Engine) markUntrusted(c *Call) {
 	r := e.untrustedReason(c.Agent)
 	if r == "" {
-		return action, reason, ""
+		return
 	}
-	switch action {
-	case Allow:
-		return Prompt, r, r
-	case Stop:
-		if reason == "" {
-			return action, r, r
-		}
-		return action, reason + "; " + r, r
-	default:
-		if reason == "" {
-			return action, r, r
-		}
-		if strings.Contains(reason, r) {
-			return action, reason, r
-		}
-		return action, reason + "; " + r, r
+	c.Untrusted = r
+	if c.Tier == "trivial" {
+		c.Tier, c.TierReason = "low", r
 	}
 }
 
@@ -280,16 +270,6 @@ func (e *Engine) denyReason() string {
 		return "denied by user"
 	}
 	return "denied by permission policy (no human attached)"
-}
-
-// denyReasonFor keeps the raising reason visible on a denial (an untrusted
-// output flag would otherwise vanish behind the generic headless wording).
-func (e *Engine) denyReasonFor(raised string) string {
-	base := e.denyReason()
-	if raised == "" || raised == base {
-		return base
-	}
-	return base + " — " + raised
 }
 
 // runSet runs each registered classifier in the requested group (static_*

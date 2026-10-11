@@ -73,7 +73,7 @@ func TestManagedPlanFollowsPolicyOrder(t *testing.T) {
 	}
 	// MiMo Flash (Go first), Luna (Go-Responses unsupported → OpenRouter), Haiku, DeepSeek.
 	want := "opencode-go/mimo-v2.6-flash,openrouter/xiaomi/mimo-v2.6-flash,openrouter/openai/gpt-6-luna," +
-		"openrouter/anthropic/claude-haiku-5.5,opencode-go/claude-haiku-5.5,opencode-go/deepseek-v4.1-flash,openrouter/deepseek/deepseek-v4.1-flash"
+		"openrouter/anthropic/claude-haiku-5.5,opencode-go/claude-haiku-5-5,opencode-go/deepseek-v4.1-flash,openrouter/deepseek/deepseek-v4.1-flash"
 	if got := refs(c.Routes); got != want {
 		t.Fatalf("chain\n got %s\nwant %s", got, want)
 	}
@@ -152,28 +152,28 @@ func TestRouterOutageReturnsStructuredResultThenTraditional(t *testing.T) {
 	if len(r.Tree.Snapshot().Children) != 0 {
 		t.Fatal("a child was created for an unroutable spawn")
 	}
-	// Traditional mode: the schema now exposes model/thinking; a modelless call is not defaulted.
+	// Traditional mode: the schema now exposes tier/thinking; a tierless call is not defaulted.
 	spec := spawnTool{agent: parent}.Spec()
 	items := spec.Parameters["properties"].(map[string]any)["tasks"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
-	if items["model"] == nil || items["thinking"] == nil {
-		t.Fatal("traditional schema does not expose model/thinking")
+	if items["tier"] == nil || items["thinking"] == nil || items["model"] != nil {
+		t.Fatal("traditional schema should expose tier/thinking and no model")
 	}
 	res = r.startChild(context.Background(), parent, Task{Task: "do it again"})
-	if res.Status != "error" || !strings.Contains(res.Report, "model selection is open") {
-		t.Fatalf("modelless call in traditional mode: %+v", res)
+	if res.Status != "error" || !strings.Contains(res.Report, "tier selection is open") {
+		t.Fatalf("tierless call in traditional mode: %+v", res)
 	}
-	// An ineligible pick is refused under the same predicate (Sol is Codex-only for delegation).
-	if _, err := r.planTraditional(Task{Task: "x", Model: "gpt-sol"}, "worker"); err == nil {
-		t.Fatal("sol should not be selectable without Codex access")
+	if _, err := r.planTraditional(Task{Task: "x", Tier: "medium"}, "worker"); err == nil {
+		t.Fatal("unknown tier accepted")
 	}
-	c, err := r.planTraditional(Task{Task: "x", Model: "mimo-v2.6-flash", Thinking: "high"}, "scout")
-	if err != nil || c.Mode != "traditional" || !strings.HasPrefix(refs(c.Routes), "opencode-go/mimo-v2.6-flash") {
+	// The low tier runs its chain in order: MiMo Flash first.
+	c, err := r.planTraditional(Task{Task: "x", Tier: "low", Thinking: "high"}, "scout")
+	if err != nil || c.Mode != "traditional" || c.Tier != "low" || !strings.HasPrefix(refs(c.Routes), "opencode-go/mimo-v2.6-flash") {
 		t.Fatalf("traditional plan: %+v %v", c, err)
 	}
-	// After the cooldown managed routing resumes and model is rejected again.
+	// After the cooldown managed routing resumes and tier is rejected again.
 	r.tradUntil = time.Now().Add(-time.Second)
-	if spec := (spawnTool{agent: parent}).Spec(); spec.Parameters["properties"].(map[string]any)["tasks"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)["model"] != nil {
-		t.Fatal("model still exposed after cooldown")
+	if spec := (spawnTool{agent: parent}).Spec(); spec.Parameters["properties"].(map[string]any)["tasks"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)["tier"] != nil {
+		t.Fatal("tier still exposed after cooldown")
 	}
 }
 
@@ -183,7 +183,7 @@ func TestManagedModeRejectsSpawnerChosenModel(t *testing.T) {
 	fakeRouter(t, nil, nil)
 	r := routerRuntime()
 	parent := New(Config{Provider: &funcProvider{}, Model: "m", Cwd: t.TempDir(), Tree: r.Tree, Runtime: r})
-	for _, task := range []Task{{Task: "x", Model: "gpt-sol"}, {Task: "x", Thinking: "high"}} {
+	for _, task := range []Task{{Task: "x", Tier: "high"}, {Task: "x", Thinking: "high"}} {
 		res := r.startChild(context.Background(), parent, task)
 		if res.Status != "error" || !strings.Contains(res.Report, "chosen by the router") {
 			t.Fatalf("%+v → %+v", task, res)

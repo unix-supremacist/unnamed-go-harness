@@ -24,6 +24,11 @@ type Model struct {
 	Provider string `json:"provider"`
 	ID       string `json:"id"`
 	Context  int    `json:"context,omitempty"` // 0 when the provider does not report it
+	// Thinking lists the reasoning efforts the provider reports for the model
+	// (OpenRouter: reasoning.supported_efforts); empty when it reports none.
+	Thinking []string `json:"thinking,omitempty"`
+	// ThinkingRequired: reasoning cannot be turned off (reasoning.mandatory).
+	ThinkingRequired bool `json:"thinking_required,omitempty"`
 }
 
 // Ref is the provider/model ref the rest of ugh uses.
@@ -104,6 +109,10 @@ func parseModels(prov string, r io.Reader) ([]Model, error) {
 			ContextLength int    `json:"context_length"`
 			ContextWindow int    `json:"context_window"`
 			MaxContext    int    `json:"max_context_length"`
+			Reasoning     *struct {
+				Mandatory        bool     `json:"mandatory"`
+				SupportedEfforts []string `json:"supported_efforts"`
+			} `json:"reasoning"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(r).Decode(&body); err != nil {
@@ -121,7 +130,11 @@ func parseModels(prov string, r io.Reader) ([]Model, error) {
 		if win == 0 {
 			win = m.MaxContext
 		}
-		out = append(out, Model{Provider: prov, ID: m.ID, Context: win})
+		mod := Model{Provider: prov, ID: m.ID, Context: win}
+		if r := m.Reasoning; r != nil && len(r.SupportedEfforts) > 0 {
+			mod.Thinking, mod.ThinkingRequired = r.SupportedEfforts, r.Mandatory
+		}
+		out = append(out, mod)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
@@ -173,6 +186,37 @@ func storeModels(prov string, ms []Model) {
 	if b, err := json.Marshal(cacheData); err == nil && os.MkdirAll(filepath.Dir(p), 0o700) == nil {
 		_ = os.WriteFile(p, b, 0o600)
 	}
+}
+
+// Thinking reports the reasoning efforts the last provider listing gave for
+// a provider/model ref, and whether reasoning is mandatory. ok is false when
+// the provider reported none. Like ContextWindow it never touches the network.
+func Thinking(ref string) (efforts []string, required, ok bool) {
+	prov, id, qualified := strings.Cut(ref, "/")
+	if !qualified {
+		return nil, false, false
+	}
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+	loadCacheLocked()
+	for _, m := range cacheData[prov] {
+		if m.ID == id && len(m.Thinking) > 0 {
+			return append([]string(nil), m.Thinking...), m.ThinkingRequired, true
+		}
+	}
+	return nil, false, false
+}
+
+// RefreshModelsIfStale re-lists every provider's models when the cached
+// listing is missing or older than maxAge, so context windows and thinking
+// levels stay current without opening the model picker.
+func RefreshModelsIfStale(ctx context.Context, maxAge time.Duration) {
+	if p := cachePath(); p != "" {
+		if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) < maxAge {
+			return
+		}
+	}
+	ListModels(ctx)
 }
 
 // ContextWindow reports a model's context window from the last provider
@@ -394,4 +438,17 @@ func SaveCompactModel(ref string) error {
 		return err
 	}
 	return policy.AtomicReplace(p, b)
+}
+
+// SetModelsForTest replaces the in-memory listing cache with one provider's
+// models until the test ends (tests only).
+func SetModelsForTest(t interface{ Cleanup(func()) }, prov string, ms []Model) {
+	cacheMu.Lock()
+	cacheData = map[string][]Model{prov: ms}
+	cacheMu.Unlock()
+	t.Cleanup(func() {
+		cacheMu.Lock()
+		cacheData = nil
+		cacheMu.Unlock()
+	})
 }

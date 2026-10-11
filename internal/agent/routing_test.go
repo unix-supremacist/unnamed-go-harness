@@ -11,6 +11,7 @@ import (
 
 	"github.com/unix/ugh/internal/config"
 	"github.com/unix/ugh/internal/llm"
+	"github.com/unix/ugh/internal/policy"
 	"github.com/unix/ugh/internal/provstate"
 	"github.com/unix/ugh/internal/tools"
 	"github.com/unix/ugh/internal/usage"
@@ -102,5 +103,40 @@ func TestApplyReserve(t *testing.T) {
 	applyReserve(secs, map[string]float64{"codex": 90}, now)
 	if !provstate.Usable("codex") {
 		t.Fatal("reserve should lift once usage drops")
+	}
+}
+
+// Go's weekly window at 100% makes Go unusable by default, and the low tier
+// (and the model list offered during a router outage) moves to OpenRouter.
+func TestGoOutRoutesToOpenRouter(t *testing.T) {
+	routingEnv(t)
+	now := time.Now()
+	secs := []usage.Section{
+		{Provider: "opencode-go", Windows: []usage.Window{{Label: "Weekly", Percent: 100, ResetsAt: now.Add(20 * time.Hour)}}},
+		{Provider: "openrouter", Windows: []usage.Window{{Label: "$0.04 of $2.50 used today", Percent: 1.8}}},
+	}
+	applyReserve(secs, config.Default().Limits.Reserve, now)
+	if provstate.Usable("opencode-go") || !provstate.Usable("openrouter") {
+		t.Fatal("Go at 100% should be out by default, OpenRouter at 1.8% usable")
+	}
+	old := routeAccess
+	routeAccess = func(ref string) (policy.AccessStatus, string) {
+		if strings.HasPrefix(ref, "opencode-go/") {
+			return policy.AccessReserved, "weekly at 100%"
+		}
+		if strings.HasPrefix(ref, "openrouter/") {
+			return policy.AccessGranted, "test"
+		}
+		return policy.AccessNoCredential, "test"
+	}
+	t.Cleanup(func() { routeAccess = old })
+	cfg := config.Default()
+	chain := policy.DelegatedFallbackChain(tierChain(cfg, policy.TierLow), "worker", delegationAccess(cfg))
+	if len(chain) == 0 || chain[0].Ref() != "openrouter/xiaomi/mimo-v2.6-flash" {
+		t.Fatalf("low chain = %s", refs(chain))
+	}
+	choices := strings.Join(traditionalChoices(cfg, "worker"), ", ")
+	if !strings.Contains(choices, "low (mimo-v2.6-flash via openrouter)") || strings.Contains(choices, "via opencode-go") {
+		t.Fatalf("choices = %s", choices)
 	}
 }

@@ -22,7 +22,7 @@ type Task struct {
 	Task       string `json:"task"`
 	Cwd        string `json:"cwd,omitempty"`
 	Role       string `json:"role,omitempty"`
-	Model      string `json:"model,omitempty"`
+	Tier       string `json:"tier,omitempty"` // traditional mode only: low | high
 	Thinking   string `json:"thinking,omitempty"`
 	MaxTurns   int    `json:"max_turns,omitempty"`
 	MaxMinutes int    `json:"max_minutes,omitempty"`
@@ -33,13 +33,17 @@ func (s spawnTool) Spec() llm.ToolSpec {
 	props := map[string]any{}
 	keys := []string{"task", "cwd", "role"}
 	if s.agent.rt != nil && s.agent.rt.traditional() {
-		// Routers are unavailable: model and thinking are caller-selected for now.
-		keys = append(keys, "model", "thinking")
+		// Routers are unavailable: tier and thinking are caller-selected for now.
+		keys = append(keys, "tier", "thinking")
 	}
 	for _, key := range keys {
 		props[key] = map[string]any{"type": "string"}
 	}
 	props["role"] = map[string]any{"type": "string", "description": "optional suggestion; the router decides and eligibility rules still apply"}
+	if props["tier"] != nil {
+		props["tier"] = map[string]any{"type": "string", "enum": []string{"low", "high"},
+			"description": "routers are down, so you pick the tier: low for simple, narrow work; high for difficult, ambiguous work. The tier's chain picks the model"}
+	}
 	props["max_minutes"] = map[string]any{"type": "integer", "description": "wall-clock budget for this child; when it runs out the child wraps up and reports (graceful turn-out)"}
 	props["max_turns"] = map[string]any{"type": "integer", "description": fmt.Sprintf(
 		"turn budget for this child (default from its role and depth; at most %d). Give research and orchestration more", maxTurnsCap())}
@@ -252,12 +256,12 @@ func (r *Runtime) startChild(ctx context.Context, parent *Agent, t Task) ChildRe
 	)
 	switch {
 	case r.traditional():
-		if t.Model == "" {
+		if t.Tier == "" && t.Role != "oracle" {
 			role := t.Role
 			if role == "" {
 				role = "scout"
 			}
-			return fail("routing is unavailable and model selection is open: resubmit this task with model (one of: " +
+			return fail("routing is unavailable and tier selection is open: resubmit this task with tier (one of: " +
 				strings.Join(traditionalChoices(r.Config, role), ", ") + ") and optionally role and thinking")
 		}
 		role := t.Role
@@ -269,15 +273,15 @@ func (r *Runtime) startChild(ctx context.Context, parent *Agent, t Task) ChildRe
 			return fail(err.Error())
 		}
 	default:
-		if t.Model != "" || t.Thinking != "" {
-			return fail("model and thinking are chosen by the router, not the spawning model; resubmit without them")
+		if t.Tier != "" || t.Thinking != "" {
+			return fail("tier and thinking are chosen by the router, not the spawning model; resubmit without them")
 		}
 		choice, err = r.planManaged(ctx, t.Task, t.Role, allowedRoles(parent))
 		var unavailable *RoutingUnavailableError
 		if errors.As(err, &unavailable) {
 			r.openTraditional(unavailable.Cooldown)
 			res := fail(fmt.Sprintf("routing-unavailable: neither router could answer (%s). Nothing was launched. "+
-				"Model selection is open for %s: resubmit this task with model (one of: %s), and optionally role and thinking.",
+				"Tier selection is open for %s: resubmit this task with tier (one of: %s), and optionally role and thinking.",
 				unavailable.Reason, unavailable.Cooldown.Round(time.Second), strings.Join(traditionalChoices(r.Config, orDefault(t.Role, "worker")), ", ")))
 			res.Status = "routing-unavailable"
 			return res

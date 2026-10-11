@@ -20,6 +20,9 @@ type Request struct {
 	Messages []Message
 	Tools    []ToolSpec
 	Thinking string
+	// Foreground marks a turn a human is waiting on (the root agent), so
+	// providers skip best-effort tiers such as OpenRouter flex.
+	Foreground bool
 }
 
 // Role of a message in the history.

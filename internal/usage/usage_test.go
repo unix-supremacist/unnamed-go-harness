@@ -177,3 +177,23 @@ func TestLedgerSumsPerProvider(t *testing.T) {
 		t.Fatalf("a = %v/%d", tot, n)
 	}
 }
+
+func TestOpenRouterResettingKeyLimit(t *testing.T) {
+	data := map[string]any{"usage": 26.18, "limit": 2.5, "limit_remaining": 2.45, "limit_reset": "daily",
+		"effective_budget": map[string]any{"limit_usd": 2.5, "spend_usd": 0.05, "reset_interval": "daily", "resets_at": "2026-10-12T00:00:00.000Z"}}
+	l, spent, reset, at, ok := keyLimit(data, 26.18)
+	if !ok || l != 2.5 || spent != 0.05 || reset != "daily" || at.IsZero() {
+		t.Fatalf("effective budget = %v %v %q %v %v", l, spent, reset, at, ok)
+	}
+	delete(data, "effective_budget")
+	if l, spent, _, _, ok := keyLimit(data, 26.18); !ok || l != 2.5 || spent < 0.049 || spent > 0.051 {
+		t.Fatalf("limit_remaining = %v %v %v", l, spent, ok)
+	}
+	delete(data, "limit_remaining")
+	if _, _, _, _, ok := keyLimit(data, 26.18); ok {
+		t.Fatal("a resetting limit must not be compared with lifetime usage")
+	}
+	if l, spent, _, _, ok := keyLimit(map[string]any{"limit": 10.0}, 3.5); !ok || l != 10 || spent != 3.5 {
+		t.Fatalf("one-off limit = %v %v %v", l, spent, ok)
+	}
+}

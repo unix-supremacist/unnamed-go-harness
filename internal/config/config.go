@@ -36,6 +36,7 @@ type Config struct {
 	Tools       Tools               `toml:"tools"`
 	Limits      Limits              `toml:"limits"`
 	Providers   map[string]Provider `toml:"providers"`
+	Flex        Flex                `toml:"flex"`
 }
 
 // Agent holds per-agent budgets ([agent]) for long recursive runs.
@@ -138,6 +139,22 @@ type Limits struct {
 	// Reserve (percent) keeps new spawns off a provider once any of its
 	// usage windows reaches it; agents already on it continue.
 	Reserve map[string]float64 `toml:"reserve"`
+}
+
+// Flex is OpenRouter flex-tier routing ([flex]): matching models try the
+// cheaper, best-effort flex endpoints first, and a request that errors or
+// streams nothing within FirstTokenS is resent on normal routing.
+type Flex struct {
+	Enabled bool `toml:"enabled"`
+	// Root also uses flex for the root agent; off by default, since a
+	// human waits on those turns.
+	Root bool `toml:"root"`
+	// Models are OpenRouter model id prefixes to try flex on.
+	Models []string `toml:"models"`
+	// Endpoints are OpenRouter provider tags tried in order before normal
+	// routing (e.g. "google-ai-studio/flex").
+	Endpoints   []string `toml:"endpoints"`
+	FirstTokenS int      `toml:"first_token_s"`
 }
 
 // StreamsFor returns the stream cap for one provider.
@@ -275,16 +292,16 @@ func Default() Config {
 			ChatGPTPlan:     "auto",
 			Routers: map[string]RouterConfig{
 				"jev": {
-					BaseURL:   "https://openrouter.ai/api/v1",
+					BaseURL:   "https://openrouter.ai/api/alpha",
 					Path:      "/decisions",
 					Model:     "typesafe/jev-1.13",
 					KeyEnv:    "OPENROUTER_API_KEY",
 					TimeoutMS: 3000,
 				},
 				"clef": {
-					BaseURL:   "https://openrouter.ai/api/v1",
+					BaseURL:   "https://openrouter.ai/api/alpha",
 					Path:      "/decisions",
-					Model:     "typesafe/clef-1.13",
+					Model:     "cloudflare/clef",
 					KeyEnv:    "OPENROUTER_API_KEY",
 					TimeoutMS: 3000,
 				},
@@ -312,7 +329,15 @@ func Default() Config {
 	cfg.Context = Context{Ladder: "jev", KeepRecent: 8, MinChunkBytes: 2048, MinSavings: 8 << 10, Instructions: true,
 		DigestTools: []string{"bash"}, DigestMinBytes: 16 << 10}
 	cfg.Compaction = Compaction{Threshold: 100000}
-	cfg.Limits = Limits{MaxLive: 64, Reserve: map[string]float64{"codex": 90}}
+	// A provider at 100% of a usage window is out until it resets; Codex keeps
+	// 10% back for interactive use.
+	cfg.Flex = Flex{
+		Enabled:     true,
+		Models:      []string{"google/gemini-"},
+		Endpoints:   []string{"google-ai-studio/flex", "google-vertex/global/flex"},
+		FirstTokenS: 30,
+	}
+	cfg.Limits = Limits{MaxLive: 64, Reserve: map[string]float64{"codex": 90, "opencode-go": 100, "openrouter": 100}}
 	cfg.Routing.Fallback = map[string]string{
 		"gpt-sol":          "mimo-v2.6-pro",
 		"mimo-v2.6-pro":    "claude-sonnet-5.5",

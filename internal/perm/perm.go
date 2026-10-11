@@ -26,6 +26,9 @@ type Call struct {
 	// Tier is the call's triage tier (trivial | low | middle | high), set by
 	// the engine; TierReason says why.
 	Tier, TierReason string
+	// Untrusted, set by the engine, says why an earlier tool output of this
+	// agent looked like injected instructions; model classifiers see it.
+	Untrusted string
 }
 
 // Message is one recent conversation turn handed to model classifiers as

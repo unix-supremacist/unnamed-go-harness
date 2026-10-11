@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/unix/ugh/internal/config"
+	"github.com/unix/ugh/internal/provider"
 )
 
 func TestClampLevel(t *testing.T) {
@@ -55,4 +57,26 @@ func setCard(t *testing.T, kind, id string, c card) {
 			delete(table, id)
 		}
 	})
+}
+
+func TestModelThinkingPrefersProviderListing(t *testing.T) {
+	provider.SetModelsForTest(t, "openrouter", []provider.Model{
+		{Provider: "openrouter", ID: "z-ai/glm-5.3-flash", Thinking: []string{"max", "high", "low"}, ThinkingRequired: true},
+		{Provider: "openrouter", ID: "openai/gpt-6-luna", Thinking: []string{"high", "minimal"}},
+	})
+	if got, known := ModelThinking("openrouter/z-ai/glm-5.3-flash"); !known || strings.Join(got, ",") != "low,high,max" {
+		t.Errorf("mandatory reasoning = %v %v (no off)", got, known)
+	}
+	if got, _ := ModelThinking("openrouter/openai/gpt-6-luna"); strings.Join(got, ",") != "off,minimal,high" {
+		t.Errorf("optional reasoning = %v", got)
+	}
+	if got, known := ModelThinking("codex/gpt-6-luna"); !known || got[0] != "off" || len(got) != 7 {
+		t.Errorf("card fallback = %v %v", got, known)
+	}
+	if _, known := ModelThinking("openrouter/xiaomi/mimo-v2.6-pro"); known {
+		t.Error("unreported levels must stay unknown")
+	}
+	if got := ClampThinking("openrouter/z-ai/glm-5.3-flash", "off"); got != "low" {
+		t.Errorf("off on mandatory reasoning → %s", got)
+	}
 }

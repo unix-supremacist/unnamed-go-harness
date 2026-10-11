@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -365,31 +364,21 @@ func noRouteHint(cfg config.Config) string {
 	return h
 }
 
-// planTraditional resolves a caller-selected model (a policy family or card id)
-// under the same eligibility predicate as managed routing. It is reachable only
-// while routers are unavailable.
+// planTraditional resolves a caller-selected tier under the same eligibility
+// predicate as managed routing. It is reachable only while routers are
+// unavailable: the caller stands in for the router's tier decision, and the
+// tier's chain decides the models exactly as in managed routing.
 func (r *Runtime) planTraditional(task Task, role string) (routeChoice, error) {
 	eval := delegationAccess(r.Config)
-	fam, ok := policy.FamilyByID(task.Model)
-	if !ok {
-		return routeChoice{}, fmt.Errorf("unknown model %q; choose one of: %s", task.Model, strings.Join(traditionalChoices(r.Config, role), ", "))
+	tier := policy.Tier(strings.ToLower(strings.TrimSpace(task.Tier)))
+	if role == "oracle" {
+		tier = policy.TierOracle
+	} else if !containsTier(eligibleTiers(r.Config, role, eval), tier) {
+		return routeChoice{}, fmt.Errorf("tier %q is not available for role %s; choose one of: %s", task.Tier, role, strings.Join(traditionalChoices(r.Config, role), ", "))
 	}
-	tier := tierFor(r.Config, fam, role)
-	chain := policy.DelegatedFallbackChain(tierChain(r.Config, tier), role, eval)
-	var routes []policy.Route
-	for _, rt := range chain {
-		if rt.Family == fam {
-			routes = append(routes, rt)
-		}
-	}
+	routes := policy.DelegatedFallbackChain(tierChain(r.Config, tier), role, eval)
 	if len(routes) == 0 {
-		return routeChoice{}, fmt.Errorf("model %s has no eligible route for role %s; choose one of: %s", task.Model, role, strings.Join(traditionalChoices(r.Config, role), ", "))
-	}
-	// The rest of the tier chain follows as availability fallback.
-	for _, rt := range chain {
-		if rt.Family != fam {
-			routes = append(routes, rt)
-		}
+		return routeChoice{}, errors.New(noRouteHint(r.Config))
 	}
 	out := routeChoice{Mode: "traditional", Role: role, Tier: tier, Routes: routes}
 	levels, known := ModelThinking(routes[0].Ref())
@@ -409,25 +398,21 @@ func (r *Runtime) planTraditional(task Task, role string) (routeChoice, error) {
 	return out, nil
 }
 
-// traditionalChoices lists the model ids a caller may pick for role right now.
+// traditionalChoices lists the tiers a caller may pick for role right now,
+// each with the model it would start on.
 func traditionalChoices(cfg config.Config, role string) []string {
 	eval := delegationAccess(cfg)
-	seen := map[string]bool{}
 	var out []string
 	tiers := append([]policy.Tier(nil), orderedTiers...)
 	if role == "oracle" {
 		tiers = []policy.Tier{policy.TierOracle}
 	}
 	for _, tier := range tiers {
-		for _, rt := range policy.DelegatedFallbackChain(tierChain(cfg, tier), role, eval) {
-			id := policy.Families[rt.Family].CardID
-			if !seen[id] {
-				seen[id] = true
-				out = append(out, id)
-			}
+		if chain := policy.DelegatedFallbackChain(tierChain(cfg, tier), role, eval); len(chain) > 0 {
+			rt := chain[0]
+			out = append(out, fmt.Sprintf("%s (%s via %s)", tier, policy.Families[rt.Family].CardID, rt.Provider))
 		}
 	}
-	sort.Strings(out)
 	return out
 }
 

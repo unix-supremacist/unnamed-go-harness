@@ -158,30 +158,33 @@ type Agent struct {
 	compactFails int
 	stopReason   string
 	liveSlot     bool // holds a Runtime live-agent slot
-	kidsMu       sync.Mutex
-	kidsCtx      context.Context // children run under it; cancelled when the time budget ends
-	kidsCancel   context.CancelFunc
-	kids         []*childRun   // background children not yet delivered
-	wake         chan struct{} // child finished or user message queued
-	rt           *Runtime      // set for spawned children (live-slot release)
-	inboxOff     int64
-	maxMinutes   int // per-task wall-clock budget from spawn
-	councilMu    sync.Mutex
-	councils     map[string]*CouncilRecordMeta // council outcomes by id (this agent convened them)
-	routeNote    string                        // routing decision to report with the result
-	thinkingWant string                        // thinking level asked for; re-clamped when the route changes
-	arch         archive                       // every tool result of this conversation, by ordinal
-	instr        map[string]seenInstr          // AGENTS.md files already shown, by real path
-	view         map[int]viewLevel             // ladder level by tool-result ordinal; absent = full
-	viewDirty    bool                          // a new query arrived; decide the view before the next request
-	query        string                        // what the user currently wants (prompt, steer or inbox message)
-	digests      map[int]string                // digest text by ordinal, computed at most once
-	lastLadder   ladderStats
-	ladderFails  int
-	jevOnce      sync.Once
-	jev          model.CostAsker
-	steerMu      sync.Mutex
-	steered      []string // user messages queued while running
+	// routeCooldown holds routes left after a transient failure; they are
+	// skipped until the time passes, then preferred again.
+	routeCooldown map[string]time.Time
+	kidsMu        sync.Mutex
+	kidsCtx       context.Context // children run under it; cancelled when the time budget ends
+	kidsCancel    context.CancelFunc
+	kids          []*childRun   // background children not yet delivered
+	wake          chan struct{} // child finished or user message queued
+	rt            *Runtime      // set for spawned children (live-slot release)
+	inboxOff      int64
+	maxMinutes    int // per-task wall-clock budget from spawn
+	councilMu     sync.Mutex
+	councils      map[string]*CouncilRecordMeta // council outcomes by id (this agent convened them)
+	routeNote     string                        // routing decision to report with the result
+	thinkingWant  string                        // thinking level asked for; re-clamped when the route changes
+	arch          archive                       // every tool result of this conversation, by ordinal
+	instr         map[string]seenInstr          // AGENTS.md files already shown, by real path
+	view          map[int]viewLevel             // ladder level by tool-result ordinal; absent = full
+	viewDirty     bool                          // a new query arrived; decide the view before the next request
+	query         string                        // what the user currently wants (prompt, steer or inbox message)
+	digests       map[int]string                // digest text by ordinal, computed at most once
+	lastLadder    ladderStats
+	ladderFails   int
+	jevOnce       sync.Once
+	jev           model.CostAsker
+	steerMu       sync.Mutex
+	steered       []string // user messages queued while running
 	// Denied lists permission denials ("tool args: reason") so unattended
 	// runs can surface them in their final summary.
 	Denied    []string
@@ -556,6 +559,10 @@ var resolveRoute = provider.Resolve
 // transiently (stalled or broken stream, 429, 5xx).
 var retryBackoff = []time.Duration{5 * time.Second, 20 * time.Second}
 
+// transientCooldown is how long a route that failed transiently (after its
+// one retry) is skipped before the agent tries it again.
+var transientCooldown = 2 * time.Minute
+
 // stream consumes one provider turn, printing text as it arrives. Transient
 // failures retry the whole turn (partial output is discarded, never
 // recorded).
@@ -583,11 +590,19 @@ func transient(err error) bool { return ClassifyFailure(err).Retryable() }
 
 func (a *Agent) streamRoutes(ctx context.Context, msgs []llm.Message, specs []llm.ToolSpec) (llm.Message, []llm.ToolCall, error) {
 	var last error
+	keepEarlier := false // an earlier route failed only transiently: do not drop it
 	for i, route := range a.cfg.Routes {
 		prov, _, _ := strings.Cut(route, ":")
 		if st, bad := provstate.Get(prov); bad && st.Kind == "exhausted" && i < len(a.cfg.Routes)-1 {
 			last = fmt.Errorf("%s exhausted until %s (%s)", prov, st.Until.Local().Format("15:04"), st.Reason)
 			continue
+		}
+		if until, ok := a.routeCooldown[route]; ok && i < len(a.cfg.Routes)-1 {
+			if time.Now().Before(until) {
+				keepEarlier = true
+				continue
+			}
+			delete(a.routeCooldown, route)
 		}
 		if ref := routeRef(route); ref != a.cfg.Node.Model {
 			p, m, e := resolveRoute(ref)
@@ -621,12 +636,31 @@ func (a *Agent) streamRoutes(ctx context.Context, msgs []llm.Message, specs []ll
 			fmt.Fprintf(a.cfg.Trace, "🔑 %s: %s credentials refreshed after rejection; retrying\n", a.cfg.Agent, prov)
 			msg, calls, started, err = a.streamOnce(ctx, msgs, specs)
 		}
+		if err != nil && !started && ClassifyFailure(err) == FailTransient && i < len(a.cfg.Routes)-1 && len(retryBackoff) > 0 {
+			// One hiccup should not move the agent to a (possibly paid) fallback.
+			fmt.Fprintf(a.cfg.Trace, "↻ %s: %v — retrying %s once before failing over\n", a.cfg.Agent, err, route)
+			select {
+			case <-time.After(retryBackoff[0]):
+				msg, calls, started, err = a.streamOnce(ctx, msgs, specs)
+			case <-ctx.Done():
+				return msg, calls, err
+			}
+		}
 		if err == nil {
-			a.cfg.Routes = a.cfg.Routes[i:]
+			if !keepEarlier {
+				a.cfg.Routes = a.cfg.Routes[i:]
+			}
 			noteRouteSuccess(a.cfg.Node.Model)
 			return msg, calls, nil
 		}
 		last = err
+		if !started && ClassifyFailure(err) == FailTransient && i < len(a.cfg.Routes)-1 {
+			if a.routeCooldown == nil {
+				a.routeCooldown = map[string]time.Time{}
+			}
+			a.routeCooldown[route] = time.Now().Add(transientCooldown)
+			keepEarlier = true
+		}
 		if until, reason, ok := provstate.QuotaError(err); ok {
 			provstate.Mark(prov, provstate.State{Kind: "exhausted", Until: until, Reason: reason})
 			fmt.Fprintf(a.cfg.Trace, "⛁ %s: %s exhausted until %s (%s)\n", a.cfg.Agent, prov, until.Local().Format("15:04"), reason)
@@ -732,7 +766,7 @@ func (a *Agent) streamOnce(ctx context.Context, msgs []llm.Message, specs []llm.
 	a.cfg.Node.clearPartial()               // a retried turn starts its live view over
 	ch, err := a.cfg.Provider.Stream(actx, llm.Request{
 		Model: a.cfg.Model, System: a.cfg.System, Messages: sent,
-		Tools: specs, Thinking: a.cfg.Thinking,
+		Tools: specs, Thinking: a.cfg.Thinking, Foreground: a.cfg.Agent == "root",
 	})
 	if err != nil {
 		cancel()

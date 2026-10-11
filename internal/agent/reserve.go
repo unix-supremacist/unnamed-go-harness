@@ -22,14 +22,21 @@ func (r *Runtime) watchReserve() {
 	if len(r.Config.Limits.Reserve) == 0 {
 		return
 	}
+	check := func(timeout time.Duration) {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		secs, _ := usage.Fetch(ctx, provider.UsageSources())
+		applyReserve(secs, r.Config.Limits.Reserve, time.Now())
+	}
 	r.reserveOnce.Do(func() {
+		// The first reading happens before the first spawn is routed, so a
+		// provider that is already out (e.g. a weekly window at 100%) is
+		// skipped from the start instead of after a failed child.
+		check(10 * time.Second)
 		go func() {
 			for {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				secs, _ := usage.Fetch(ctx, provider.UsageSources())
-				cancel()
-				applyReserve(secs, r.Config.Limits.Reserve, time.Now())
 				time.Sleep(reserveEvery)
+				check(30 * time.Second)
 			}
 		}()
 	})

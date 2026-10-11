@@ -530,3 +530,13 @@ func TestContextAndCompactionDefaultsAndValidation(t *testing.T) {
 		}
 	}
 }
+
+// The decisions API lives under /api/alpha; /api/v1/decisions is a 404,
+// which silently dropped every spawn into traditional routing.
+func TestRouterDefaultsUseDecisionsBase(t *testing.T) {
+	for name, rc := range Default().Routing.Routers {
+		if rc.BaseURL != "https://openrouter.ai/api/alpha" || rc.Path != "/decisions" {
+			t.Errorf("router %s endpoint = %s%s", name, rc.BaseURL, rc.Path)
+		}
+	}
+}

@@ -70,6 +70,9 @@ func chatCmd(args []string) error {
 	for _, warning := range warnings {
 		fmt.Fprintln(os.Stderr, "warning:", warning)
 	}
+	// Context windows and thinking levels come from the cached listings;
+	// keep them current in the background (at most daily).
+	go provider.RefreshModelsIfStale(context.Background(), 24*time.Hour)
 	if *model == "" {
 		*model = defaultModelRef()
 	}

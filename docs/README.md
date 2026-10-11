@@ -132,6 +132,25 @@ no_thinking = ["some-model-"]   # model id prefixes that reject `reasoning`
 usage = "none"                  # opencode | openrouter | none
 ```
 
+### OpenRouter flex
+
+Gemini on OpenRouter has opt-in flex endpoints: half the standard price, best effort. ugh tries
+them first for matching models. OpenRouter moves to normal routing by itself when a flex endpoint
+errors. A flex queue can also be slow without erroring, so if nothing has streamed after
+`first_token_s`, ugh cancels the request and resends it on normal routing. No output has been shown
+at that point, so the agent never sees the retry. The root agent skips flex by default, since you
+are waiting on it. With Google AI credits on OpenRouter BYOK, flex stretches the monthly credit
+about twice as far.
+
+```toml
+[flex]
+enabled = true
+root = false                                   # also use flex for the root agent
+models = ["google/gemini-"]                    # OpenRouter model id prefixes
+endpoints = ["google-ai-studio/flex", "google-vertex/global/flex"]
+first_token_s = 30
+```
+
 ## Running
 
 ```sh
@@ -186,8 +205,11 @@ progress.
   ctrl+p / ctrl+shift+p cycle through it.
 - ctrl+r opens the resume picker · shift+tab cycles the permission mode
 - tab completes `/commands` and `@file` paths
-- Thinking starts at `high`. Levels come from the model card's thinking list. An unsupported level clamps to the
-  closest one, and a card that lists none gets every level. Bare `/thinking` cycles.
+- Thinking starts at `high`. The levels a model accepts come from its provider's model listing where
+  the provider reports them (OpenRouter does, and `off` disappears when reasoning is mandatory), else
+  from the model card, else every level is offered. An unsupported level clamps to the closest one.
+  Bare `/thinking` cycles. Listings are cached and refreshed in the background at most daily (and
+  whenever the model picker opens).
 
 | command | aliases | |
 |---|---|---|
@@ -300,6 +322,11 @@ Headless `-p` in classify mode turns prompts into denials (`headless_prompt`). D
 the end of the run and in each child's spawn result. For hours-long runs, prefer
 `-mode auto-safe`.
 
+In classify mode a call prompts only when a static rule or a model classifier flags it. Tool output
+(except from trivial calls) is also screened for injected instructions. A flagged output never
+prompts by itself; it makes the model panel judge that agent's later calls, trivial ones included,
+and tells it that earlier output looked injected, so Jev's `injected` question decides.
+
 Every decision is logged to `~/.local/state/ugh/decisions.jsonl`, with the tier, the reason and the
 billed cost of each verdict. Secrets are scrubbed.
 
@@ -336,7 +363,7 @@ child_timeout = "0"            # wall-clock budget per child, e.g. "45m" (tasks 
 [limits]
 max_live = 64                  # agents running at once; parents waiting on spawn don't count
 streams = { codex = 3, "opencode-go" = 6 }   # per provider; others use routing.provider_concurrency (4)
-reserve = { codex = 90 }       # % of a usage window after which new spawns avoid the provider
+reserve = { codex = 90, "opencode-go" = 100, openrouter = 100 }   # % of a usage window after which new spawns avoid the provider
 ```
 
 **Routing** protects scarce quota:
@@ -367,8 +394,9 @@ reserve = { codex = 90 }       # % of a usage window after which new spawns avoi
     Delegated Sol and Astra always run on Codex, and Astra only as the oracle. Unknown family ids are
     skipped with a warning at startup.
   - If neither router answers, nothing is launched and the call returns `routing-unavailable`.
-    `spawn` then exposes `model`/`thinking` for `traditional_cooldown_s` (default 120 s) before the
-    routers are retried.
+    `spawn` then exposes `tier` (`low`/`high`) and `thinking` for `traditional_cooldown_s` (default
+    120 s) before the routers are retried. The caller only stands in for the router's tier decision;
+    the tier's chain still picks the model.
 - **Automatic delegation needs confirmed access.** A stored credential alone counts as *unknown*.
   - Mark the providers you pay for with `[routing.access] openrouter = "granted"` (or per
     `provider/model`).
@@ -384,7 +412,9 @@ reserve = { codex = 90 }       # % of a usage window after which new spawns avoi
 - **Exhausted providers are shared.** A provider that refuses with a usage limit is marked exhausted
   until its reset, for every agent and every ugh process (`~/.local/state/ugh/providers.json`, shown
   by `watch` and `usage`). A running child whose provider fails moves to the next route in its chain
-  and keeps its history.
+  and keeps its history. A transient failure before any output (5xx, a 429 that is not a quota
+  error, or a stall) is retried once on the same route first. That failover lasts only 2 minutes,
+  after which the agent goes back to its preferred route.
 - **`oracle`** (GPT Astra) is available only when no council can run, or after a viable council
   **with your approval**. It is never auto-approved and is refused headless.
 
@@ -489,8 +519,9 @@ that directory:
 Cards are built into ugh (`internal/agent/cards.go`); nothing is read from disk.
 - **Model cards** (`gpt-sol`, `gpt-astra`, `gpt-luna`, `mimo-v2.6-pro`, `mimo-v2.6-flash`,
   `glm-5.3-flash`, `deepseek-v4.1-flash`, `qwen3.8-flash`) give a short id usable anywhere a model
-  ref is (`-m gpt-sol`). Each lists its routes in preference order, the thinking levels it accepts,
-  and a fallback context window for when the provider's `/models` listing doesn't report one.
+  ref is (`-m gpt-sol`). Each lists its routes in preference order, and the thinking levels and
+  context window to use when the provider's `/models` listing doesn't report them (OpenCode and Codex
+  report neither).
 - **Role cards** (`scout`, `worker`, `planner`, `reviewer`, `oracle`, `log-parser`,
   `orchestrator`) give each role its system prompt, its tool set and the purpose the router reads
   when it picks a role.

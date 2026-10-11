@@ -60,3 +60,31 @@ func TestCompactModelPersists(t *testing.T) {
 		t.Fatalf("clearing twice: %v", err)
 	}
 }
+
+func TestParseModelsReasoning(t *testing.T) {
+	body := `{"data":[
+		{"id":"z-ai/glm-5.3-flash","reasoning":{"mandatory":true,"supported_efforts":["max","high","low"]}},
+		{"id":"xiaomi/mimo-v2.6-pro","reasoning":{"mandatory":false}},
+		{"id":"plain"}]}`
+	ms, err := parseModels("openrouter", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Model{}
+	for _, m := range ms {
+		got[m.ID] = m
+	}
+	if g := got["z-ai/glm-5.3-flash"]; !g.ThinkingRequired || strings.Join(g.Thinking, ",") != "max,high,low" {
+		t.Errorf("glm = %+v", g)
+	}
+	if len(got["xiaomi/mimo-v2.6-pro"].Thinking) != 0 || len(got["plain"].Thinking) != 0 {
+		t.Errorf("efforts invented: %+v", ms)
+	}
+	SetModelsForTest(t, "openrouter", ms)
+	if e, req, ok := Thinking("openrouter/z-ai/glm-5.3-flash"); !ok || !req || len(e) != 3 {
+		t.Errorf("Thinking = %v %v %v", e, req, ok)
+	}
+	if _, _, ok := Thinking("openrouter/xiaomi/mimo-v2.6-pro"); ok {
+		t.Error("no efforts reported, but Thinking claimed some")
+	}
+}

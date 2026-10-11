@@ -931,7 +931,7 @@ func (s *State) setThinking(level string) {
 	note := ""
 	switch {
 	case !known:
-		note = " (levels for " + s.modelRef + " are not listed in its model card; sent as-is)"
+		note = " (levels for " + s.modelRef + " are not reported by its provider or model card; sent as-is)"
 	case s.thinking != level:
 		note = " (" + level + " is not supported by " + s.modelRef + "; it supports " + strings.Join(levels, "|") + ")"
 	}

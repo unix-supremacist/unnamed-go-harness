@@ -117,8 +117,8 @@ var Families = map[Family]FamilyInfo{
 		DisplayName:   "MiMo 2.6 Flash",
 		CardID:        "mimo-v2.6-flash",
 		DelegatedTier: TierLow,
-		ProviderOrder: []string{"opencode-go", "opencode-zen", "openrouter"},
-		RootProviders: []string{"openrouter", "opencode-go", "opencode-zen"},
+		ProviderOrder: []string{"opencode-go", "openrouter"},
+		RootProviders: []string{"openrouter", "opencode-go"},
 		CouncilPanel:  true,
 	},
 	FamilyGPTSol: {
@@ -167,7 +167,7 @@ var Families = map[Family]FamilyInfo{
 		DisplayName:   "Claude Sonnet 5.5",
 		CardID:        "claude-sonnet-5.5",
 		DelegatedTier: TierHigh,
-		ProviderOrder: []string{"openrouter", "opencode-zen", "opencode-go"},
+		ProviderOrder: []string{"openrouter", "opencode-zen"},
 		RootProviders: []string{"openrouter", "opencode-zen"},
 		CouncilCoord:  true,
 	},
@@ -184,7 +184,7 @@ var Families = map[Family]FamilyInfo{
 		DisplayName:   "Claude Fable 5.1",
 		CardID:        "claude-fable-5.1",
 		DelegatedTier: TierOracle,
-		ProviderOrder: []string{"openrouter", "opencode-zen", "opencode-go"},
+		ProviderOrder: []string{"openrouter", "opencode-zen"},
 		RootProviders: []string{"openrouter", "opencode-zen"},
 		CouncilSynth:  true,
 	},
@@ -230,44 +230,41 @@ var ConcreteRoutes = map[Family]map[string]Route{
 		"opencode-go": {Family: FamilyMiMoPro, Provider: "opencode-go", ModelID: "mimo-v2.6-pro", Transport: TransportChat},
 	},
 	FamilyMiMoFlash: {
-		"openrouter":   {Family: FamilyMiMoFlash, Provider: "openrouter", ModelID: "xiaomi/mimo-v2.6-flash", Transport: TransportChat},
-		"opencode-go":  {Family: FamilyMiMoFlash, Provider: "opencode-go", ModelID: "mimo-v2.6-flash", Transport: TransportChat},
-		"opencode-zen": {Family: FamilyMiMoFlash, Provider: "opencode-zen", ModelID: "xiaomi/mimo-v2.6-flash", Transport: TransportChat},
+		"openrouter":  {Family: FamilyMiMoFlash, Provider: "openrouter", ModelID: "xiaomi/mimo-v2.6-flash", Transport: TransportChat},
+		"opencode-go": {Family: FamilyMiMoFlash, Provider: "opencode-go", ModelID: "mimo-v2.6-flash", Transport: TransportChat},
 	},
 	FamilyGPTSol: {
 		"codex":        {Family: FamilyGPTSol, Provider: "codex", ModelID: "gpt-6.1-sol", Transport: TransportResponses},
 		"openrouter":   {Family: FamilyGPTSol, Provider: "openrouter", ModelID: "openai/gpt-6.1-sol", Transport: TransportChat},
-		"opencode-zen": {Family: FamilyGPTSol, Provider: "opencode-zen", ModelID: "openai/gpt-6.1-sol", Transport: TransportChat},
+		"opencode-zen": {Family: FamilyGPTSol, Provider: "opencode-zen", ModelID: "gpt-6.1-sol", Transport: TransportChat},
 	},
 	FamilyGPTAstra: {
 		"codex":        {Family: FamilyGPTAstra, Provider: "codex", ModelID: "gpt-6-astra", Transport: TransportResponses},
 		"openrouter":   {Family: FamilyGPTAstra, Provider: "openrouter", ModelID: "openai/gpt-6-astra", Transport: TransportChat},
-		"opencode-zen": {Family: FamilyGPTAstra, Provider: "opencode-zen", ModelID: "openai/gpt-6-astra", Transport: TransportChat},
+		"opencode-zen": {Family: FamilyGPTAstra, Provider: "opencode-zen", ModelID: "gpt-6-astra", Transport: TransportChat},
 	},
 	FamilyGPTLuna: {
 		"codex":        {Family: FamilyGPTLuna, Provider: "codex", ModelID: "gpt-6-luna", Transport: TransportResponses},
 		"openrouter":   {Family: FamilyGPTLuna, Provider: "openrouter", ModelID: "openai/gpt-6-luna", Transport: TransportChat},
-		"opencode-zen": {Family: FamilyGPTLuna, Provider: "opencode-zen", ModelID: "openai/gpt-6-luna", Transport: TransportChat},
+		"opencode-zen": {Family: FamilyGPTLuna, Provider: "opencode-zen", ModelID: "gpt-6-luna", Transport: TransportChat},
 		"opencode-go":  {Family: FamilyGPTLuna, Provider: "opencode-go", ModelID: "gpt-6-luna", Transport: TransportResponses}, // Responses required; chat unsupported
 	},
 	FamilyClaudeHaiku: {
 		"openrouter":   {Family: FamilyClaudeHaiku, Provider: "openrouter", ModelID: "anthropic/claude-haiku-5.5", Transport: TransportChat},
-		"opencode-go":  {Family: FamilyClaudeHaiku, Provider: "opencode-go", ModelID: "claude-haiku-5.5", Transport: TransportChat},
-		"opencode-zen": {Family: FamilyClaudeHaiku, Provider: "opencode-zen", ModelID: "claude-haiku-5.5", Transport: TransportChat},
+		"opencode-go":  {Family: FamilyClaudeHaiku, Provider: "opencode-go", ModelID: "claude-haiku-5-5", Transport: TransportChat},
+		"opencode-zen": {Family: FamilyClaudeHaiku, Provider: "opencode-zen", ModelID: "claude-haiku-5-5", Transport: TransportChat},
 	},
 	FamilyClaudeSonnet: {
 		"openrouter":   {Family: FamilyClaudeSonnet, Provider: "openrouter", ModelID: "anthropic/claude-sonnet-5.5", Transport: TransportChat},
-		"opencode-zen": {Family: FamilyClaudeSonnet, Provider: "opencode-zen", ModelID: "claude-sonnet-5.5", Transport: TransportChat},
-		"opencode-go":  {Family: FamilyClaudeSonnet, Provider: "opencode-go", ModelID: "claude-sonnet-5.5", Transport: TransportChat},
+		"opencode-zen": {Family: FamilyClaudeSonnet, Provider: "opencode-zen", ModelID: "claude-sonnet-5-5", Transport: TransportChat},
 	},
 	FamilyClaudeOpus: {
 		"openrouter":   {Family: FamilyClaudeOpus, Provider: "openrouter", ModelID: "anthropic/claude-opus-5.5", Transport: TransportChat},
-		"opencode-zen": {Family: FamilyClaudeOpus, Provider: "opencode-zen", ModelID: "claude-opus-5.5", Transport: TransportChat},
+		"opencode-zen": {Family: FamilyClaudeOpus, Provider: "opencode-zen", ModelID: "claude-opus-5-5", Transport: TransportChat},
 	},
 	FamilyClaudeFable: {
 		"openrouter":   {Family: FamilyClaudeFable, Provider: "openrouter", ModelID: "anthropic/claude-fable-5.1", Transport: TransportChat},
-		"opencode-zen": {Family: FamilyClaudeFable, Provider: "opencode-zen", ModelID: "claude-fable-5.1", Transport: TransportChat},
-		"opencode-go":  {Family: FamilyClaudeFable, Provider: "opencode-go", ModelID: "claude-fable-5.1", Transport: TransportChat},
+		"opencode-zen": {Family: FamilyClaudeFable, Provider: "opencode-zen", ModelID: "claude-fable-5-1", Transport: TransportChat},
 	},
 	FamilyDeepSeekFlash: {
 		"opencode-go":  {Family: FamilyDeepSeekFlash, Provider: "opencode-go", ModelID: "deepseek-v4.1-flash", Transport: TransportChat},
@@ -277,7 +274,7 @@ var ConcreteRoutes = map[Family]map[string]Route{
 	FamilyGLMFlash: {
 		"opencode-go":  {Family: FamilyGLMFlash, Provider: "opencode-go", ModelID: "glm-5.3-flash", Transport: TransportChat},
 		"opencode-zen": {Family: FamilyGLMFlash, Provider: "opencode-zen", ModelID: "glm-5.3-flash", Transport: TransportChat},
-		"openrouter":   {Family: FamilyGLMFlash, Provider: "openrouter", ModelID: "zhipu/glm-5.3-flash", Transport: TransportChat},
+		"openrouter":   {Family: FamilyGLMFlash, Provider: "openrouter", ModelID: "z-ai/glm-5.3-flash", Transport: TransportChat},
 	},
 	FamilyQwen: {
 		"openrouter":   {Family: FamilyQwen, Provider: "openrouter", ModelID: "qwen/qwen3.8-flash", Transport: TransportChat},

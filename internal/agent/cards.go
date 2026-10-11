@@ -170,22 +170,36 @@ func cardForRef(ref string) (card, bool) {
 	return card{}, false
 }
 
-// ModelThinking lists the levels a model supports, "off" first, from its
-// card's thinking list (Pi's per-model level map). Without a card, or with
-// an empty list (levels not verified, like Pi models with no level map),
-// every level is offered and the provider decides.
+// ModelThinking lists the levels a model supports, weakest first. The
+// provider's own listing wins where it reports efforts (OpenRouter), with
+// "off" only when reasoning is optional; otherwise the model card's thinking
+// list (plus "off"). Without either, every level is offered and the provider
+// decides (known is false).
 func ModelThinking(ref string) (levels []string, known bool) {
+	if efforts, required, ok := provider.Thinking(ref); ok {
+		if out := orderLevels(efforts, !required); len(out) > 0 {
+			return out, true
+		}
+	}
 	c, ok := cardForRef(ref)
 	if !ok || len(c.Thinking) == 0 {
 		return ThinkingLevels, false
 	}
-	out := []string{"off"}
+	return orderLevels(c.Thinking, true), true
+}
+
+// orderLevels keeps the known level names in ThinkingLevels order.
+func orderLevels(names []string, withOff bool) []string {
+	var out []string
+	if withOff {
+		out = append(out, "off")
+	}
 	for _, l := range ThinkingLevels[1:] {
-		if contains(c.Thinking, l) {
+		if contains(names, l) {
 			out = append(out, l)
 		}
 	}
-	return out, true
+	return out
 }
 
 // ClampThinking maps a requested level onto the closest level the model

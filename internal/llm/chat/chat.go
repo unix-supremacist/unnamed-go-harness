@@ -34,7 +34,9 @@ type Client struct {
 	// (config-defined providers).
 	NoThinking []string
 	Headers    map[string]string
-	http       *http.Client
+	// Flex, when set, tries OpenRouter flex endpoints first (see flex.go).
+	Flex *Flex
+	http *http.Client
 }
 
 // New returns a client for one base URL. The optional http client is used
@@ -52,7 +54,15 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 	if !thinkingParamOK(c.Prov, req.Model) || hasPrefix(c.NoThinking, req.Model) {
 		req.Thinking = "" // §3: drop unsupported thinking params, never errors
 	}
-	body, err := buildRequest(req)
+	if c.Flex.applies(req) {
+		return c.streamFlex(ctx, req)
+	}
+	return c.stream(ctx, req, nil)
+}
+
+// stream posts one request; extra fields are merged into the body.
+func (c *Client) stream(ctx context.Context, req llm.Request, extra map[string]any) (<-chan llm.Event, error) {
+	body, err := buildRequest(req, extra)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +118,7 @@ func (c *Client) Stream(ctx context.Context, req llm.Request) (<-chan llm.Event,
 
 // buildRequest serializes the Chat Completions body. Salvaged structure:
 // user/assistant/tool messages, assistant tool_calls, function tools.
-func buildRequest(req llm.Request) ([]byte, error) {
+func buildRequest(req llm.Request, extra map[string]any) ([]byte, error) {
 	messages := make([]any, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, map[string]any{"role": "system", "content": req.System})
@@ -158,6 +168,9 @@ func buildRequest(req llm.Request) ([]byte, error) {
 	}
 	if req.Thinking != "" && req.Thinking != "off" {
 		body["reasoning"] = map[string]any{"effort": req.Thinking}
+	}
+	for k, v := range extra {
+		body[k] = v
 	}
 	return json.Marshal(body)
 }

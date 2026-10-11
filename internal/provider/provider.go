@@ -62,7 +62,33 @@ func Resolve(ref string) (llm.Provider, string, error) {
 	if spec.Session {
 		c.Session = newUUID() // OpenCode requires x-opencode-session
 	}
+	c.Flex = flexFor(prov, model)
 	return c, model, nil
+}
+
+// flexFor is the [flex] policy for one OpenRouter model, or nil.
+func flexFor(prov, model string) *chat.Flex {
+	if prov != "openrouter" {
+		return nil
+	}
+	cfg, err := config.Load()
+	if err != nil || !cfg.Flex.Enabled || len(cfg.Flex.Endpoints) == 0 || !hasAnyPrefix(model, cfg.Flex.Models) {
+		return nil
+	}
+	wait := time.Duration(cfg.Flex.FirstTokenS) * time.Second
+	if wait <= 0 {
+		wait = 30 * time.Second
+	}
+	return &chat.Flex{Endpoints: cfg.Flex.Endpoints, FirstToken: wait, Root: cfg.Flex.Root}
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // The shared resolver also guards explicit/manual refs, which need not have

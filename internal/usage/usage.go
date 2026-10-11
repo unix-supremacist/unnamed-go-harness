@@ -307,14 +307,13 @@ func openRouter(ctx context.Context, src Sources, t Target) (Section, error) {
 	if !ok {
 		return Section{}, fmt.Errorf("OpenRouter: unrecognized usage response")
 	}
-	limit, hasLimit := num(data["limit"])
-	if limit < 0 {
-		hasLimit = false
-	}
 	w := Window{Label: fmt.Sprintf("$%.2f used", used), NoBar: true}
-	if hasLimit && limit > 0 {
-		w.Label = fmt.Sprintf("$%.2f of $%.2f used", used, limit)
-		w.Percent, w.NoBar = used/limit*100, false
+	if limit, spent, reset, resets, ok := keyLimit(data, used); ok {
+		w.Label = fmt.Sprintf("$%.2f of $%.2f used", spent, limit)
+		if p := periodName(reset); p != "" {
+			w.Label += " " + p
+		}
+		w.Percent, w.NoBar, w.ResetsAt = spent/limit*100, false, resets
 	}
 	sub := "Paid tier"
 	if free, _ := data["is_free_tier"].(bool); free {
@@ -340,6 +339,54 @@ func openRouter(ctx context.Context, src Sources, t Target) (Section, error) {
 		}
 	}
 	return Section{Provider: t.Provider, Title: title(t, "OpenRouter usage"), Subtitle: sub, Windows: []Window{w}}, nil
+}
+
+// keyLimit reads an OpenRouter key's spending limit for its current period.
+// The limit may reset (daily/weekly/monthly) while "usage" is lifetime, so
+// the spend is the period's: effective_budget when present, else limit minus
+// limit_remaining, else lifetime usage for a limit that never resets.
+func keyLimit(data map[string]any, lifetime float64) (limit, spent float64, reset string, resets time.Time, ok bool) {
+	if b, _ := data["effective_budget"].(map[string]any); b != nil {
+		if l, lok := num(b["limit_usd"]); lok && l > 0 {
+			sp, sok := num(b["spend_usd"])
+			if !sok {
+				if rem, rok := num(b["remaining_usd"]); rok {
+					sp, sok = l-rem, true
+				}
+			}
+			if sok {
+				reset, _ = b["reset_interval"].(string)
+				if at, _ := b["resets_at"].(string); at != "" {
+					resets, _ = time.Parse(time.RFC3339, at)
+				}
+				return l, math.Max(0, sp), reset, resets, true
+			}
+		}
+	}
+	l, lok := num(data["limit"])
+	if !lok || l <= 0 {
+		return 0, 0, "", time.Time{}, false
+	}
+	reset, _ = data["limit_reset"].(string)
+	if rem, rok := num(data["limit_remaining"]); rok {
+		return l, math.Max(0, l-rem), reset, time.Time{}, true
+	}
+	if reset != "" {
+		return 0, 0, "", time.Time{}, false // a resetting limit without its period spend: no honest percentage
+	}
+	return l, lifetime, "", time.Time{}, true
+}
+
+func periodName(reset string) string {
+	switch reset {
+	case "daily":
+		return "today"
+	case "weekly":
+		return "this week"
+	case "monthly":
+		return "this month"
+	}
+	return ""
 }
 
 // ---- rendering ----

@@ -22,7 +22,7 @@ func RoutingStatus(r *Runtime, m *admission.Manager) string {
 		mode = "table (no router)"
 	}
 	if r.traditional() {
-		mode = fmt.Sprintf("traditional: routers unavailable, callers choose models until %s", r.tradUntilTime().Local().Format("15:04:05"))
+		mode = fmt.Sprintf("traditional: routers unavailable, callers choose tiers until %s", r.tradUntilTime().Local().Format("15:04:05"))
 	}
 	fmt.Fprintf(&b, "routing: %s · preferred %s, backup %s\n", mode, orDash(pref), orDash(other))
 

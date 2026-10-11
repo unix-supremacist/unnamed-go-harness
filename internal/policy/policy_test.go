@@ -44,7 +44,7 @@ func TestPolicyDefaultRootScope(t *testing.T) {
 			wantRefs: []string{
 				"opencode-go/mimo-v2.6-pro",
 				"opencode-go/mimo-v2.6-flash",
-				"opencode-go/claude-haiku-5.5",
+				"opencode-go/claude-haiku-5-5",
 			},
 			avoidRefs: []string{
 				// OpenCode Go Luna requires Responses transport, unsupported on Go chat client!
@@ -53,21 +53,21 @@ func TestPolicyDefaultRootScope(t *testing.T) {
 			},
 		},
 		{
-			name:  "opencode-zen excludes mimo pro",
+			name:  "opencode-zen uses Zen's own ids and has no MiMo",
 			creds: map[string]bool{"opencode-zen": true},
 			wantRefs: []string{
-				"opencode-zen/xiaomi/mimo-v2.6-flash",
-				"opencode-zen/openai/gpt-6.1-sol",
-				"opencode-zen/openai/gpt-6-astra",
-				"opencode-zen/openai/gpt-6-luna",
-				"opencode-zen/claude-haiku-5.5",
-				"opencode-zen/claude-sonnet-5.5",
-				"opencode-zen/claude-opus-5.5",
-				"opencode-zen/claude-fable-5.1",
+				"opencode-zen/gpt-6.1-sol",
+				"opencode-zen/gpt-6-astra",
+				"opencode-zen/gpt-6-luna",
+				"opencode-zen/claude-haiku-5-5",
+				"opencode-zen/claude-sonnet-5-5",
+				"opencode-zen/claude-opus-5-5",
+				"opencode-zen/claude-fable-5-1",
 			},
 			avoidRefs: []string{
-				// OpenCode Zen does not offer MiMo Pro in root scope per policy.
+				// Zen lists neither MiMo Pro nor plain MiMo Flash (only a -free variant).
 				"opencode-zen/xiaomi/mimo-v2.6-pro",
+				"opencode-zen/xiaomi/mimo-v2.6-flash",
 			},
 		},
 		{
